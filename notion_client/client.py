@@ -1,37 +1,47 @@
 import logging
+from abc import abstractclassmethod
 from dataclasses import dataclass
-from typing import Dict, Union
+from typing import Any, Dict, Optional, Union
 
 import httpx
+from httpx import Request, Response
 
-from .api_endpoints import (
+from notion_client.api_endpoints import (
     BlocksEndpoint,
     DatabasesEndpoint,
     PagesEndpoint,
+    SearchEndpoint,
     UsersEndpoint,
 )
-from .errors import build_request_error
-from .helpers import pick
-from .logging import make_console_logger
+from notion_client.errors import (
+    APIErrorResponseBody,
+    APIResponseError,
+    HTTPResponseError,
+    RequestTimeoutError,
+    is_api_error_code,
+    is_timeout_error,
+)
+from notion_client.logging import make_console_logger
+from notion_client.typing import SyncAsync
 
 
 @dataclass
 class ClientOptions:
-    auth: str = None
+    auth: Optional[str] = None
     timeout_ms: int = 60_000
     base_url: str = "https://api.notion.com"
     log_level: int = logging.WARNING
-    logger: logging.Logger = None
+    logger: Optional[logging.Logger] = None
     notion_version: str = "2021-05-13"
 
 
-class Client:
+class BaseClient:
     def __init__(
         self,
-        options: Union[Dict, ClientOptions] = None,
-        client: httpx.Client = None,
-        **kwargs,
-    ):
+        client: Union[httpx.Client, httpx.AsyncClient],
+        options: Optional[Union[Dict[str, Any], ClientOptions]] = None,
+        **kwargs: Any,
+    ) -> None:
         if options is None:
             options = ClientOptions(**kwargs)
         elif isinstance(options, dict):
@@ -40,15 +50,15 @@ class Client:
         self.logger = options.logger or make_console_logger()
         self.logger.setLevel(options.log_level)
 
-        if client is None:
-            client = httpx.Client()
         self.client = client
-        self.client.base_url = options.base_url + "/v1/"
-        self.client.timeout = options.timeout_ms / 1_000
-        self.client.headers = {
-            "Notion-Version": options.notion_version,
-            "User-Agent": "ramnes/notion-sdk-py@0.3.1",
-        }
+        self.client.base_url = httpx.URL(options.base_url + "/v1/")
+        self.client.timeout = httpx.Timeout(timeout=options.timeout_ms / 1_000)
+        self.client.headers = httpx.Headers(
+            {
+                "Notion-Version": options.notion_version,
+                "User-Agent": "ramnes/notion-sdk-py@0.4.0",
+            }
+        )
         if options.auth:
             self.client.headers["Authorization"] = f"Bearer {options.auth}"
 
@@ -56,45 +66,95 @@ class Client:
         self.databases = DatabasesEndpoint(self)
         self.users = UsersEndpoint(self)
         self.pages = PagesEndpoint(self)
+        self.search = SearchEndpoint(self)
 
-    def _build_request(self, method, path, query, body):
+    def _build_request(
+        self,
+        method: str,
+        path: str,
+        query: Optional[Dict[Any, Any]] = None,
+        body: Optional[Dict[Any, Any]] = None,
+    ) -> Request:
         self.logger.info(f"{method} {self.client.base_url}{path}")
         return self.client.build_request(method, path, params=query, json=body)
 
-    def _check_response(self, response):
+    def _parse_response(self, response: Response) -> Any:
         try:
             response.raise_for_status()
-        except Exception as error:
-            raise build_request_error(error) or error
+        except httpx.TimeoutException as error:
+            if is_timeout_error(error):
+                raise RequestTimeoutError()
+            raise
+        except httpx.HTTPStatusError as error:
+            body = error.response.json()
+            code = body.get("code")
+            if is_api_error_code(code):
+                body = APIErrorResponseBody(code=code, message=body["message"])
+                raise APIResponseError(error.response, body)
+            raise HTTPResponseError(error.response)
 
-    def request(self, path, method, query=None, body=None, auth=None):
-        request = self._build_request(method, path, query, body)
-        response = self.client.send(request)
-        self._check_response(response)
-        return response
+        return response.json()
 
-    def search(self, **kwargs):
-        return self.request(
-            path="search",
-            method="POST",
-            body=pick(kwargs, "query", "sort", "filter", "start_cursor", "page_size"),
-        )
+    @abstractclassmethod
+    def request(
+        self,
+        path: str,
+        method: str,
+        query: Optional[Dict[Any, Any]] = None,
+        body: Optional[Dict[Any, Any]] = None,
+        auth: Optional[str] = None,
+    ) -> SyncAsync[Any]:
+        pass
 
 
-class AsyncClient(Client):
+class Client(BaseClient):
+    client: httpx.Client
+
     def __init__(
         self,
-        options: Union[Dict, ClientOptions] = None,
-        client: httpx.AsyncClient = None,
-        **kwargs,
-    ):
+        options: Optional[Union[Dict[Any, Any], ClientOptions]] = None,
+        client: Optional[httpx.Client] = None,
+        **kwargs: Any,
+    ) -> None:
+        if client is None:
+            client = httpx.Client()
+        super().__init__(client, options, **kwargs)
+
+    def request(
+        self,
+        path: str,
+        method: str,
+        query: Optional[Dict[Any, Any]] = None,
+        body: Optional[Dict[Any, Any]] = None,
+        auth: Optional[str] = None,
+    ) -> Any:
+        request = self._build_request(method, path, query, body)
+        response = self.client.send(request)
+        return self._parse_response(response)
+
+
+class AsyncClient(BaseClient):
+    client: httpx.AsyncClient
+
+    def __init__(
+        self,
+        options: Optional[Union[Dict[str, Any], ClientOptions]] = None,
+        client: Optional[httpx.AsyncClient] = None,
+        **kwargs: Any,
+    ) -> None:
         if client is None:
             client = httpx.AsyncClient()
-        super().__init__(options, client, **kwargs)
+        super().__init__(client, options, **kwargs)
 
-    async def request(self, path, method, query=None, body=None, auth=None):
+    async def request(
+        self,
+        path: str,
+        method: str,
+        query: Optional[Dict[Any, Any]] = None,
+        body: Optional[Dict[Any, Any]] = None,
+        auth: Optional[str] = None,
+    ) -> Any:
         request = self._build_request(method, path, query, body)
         async with self.client as client:
             response = await client.send(request)
-        self._check_response(response)
-        return response
+        return self._parse_response(response)

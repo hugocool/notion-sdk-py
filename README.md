@@ -9,6 +9,8 @@
         <a href="tox.ini"><img src="https://img.shields.io/pypi/pyversions/notion-client" alt="Supported Python Versions"></a>
         <a href="LICENSE"><img src="https://img.shields.io/github/license/ramnes/notion-sdk-py" alt="License"></a>
         <a href="https://github.com/ambv/black"><img src="https://img.shields.io/badge/code%20style-black-black" alt="Code style"></a>
+        <a href="https://github.com/ramnes/notion-sdk-py/actions/workflows/quality.yml"><img src="https://github.com/ramnes/notion-sdk-py/actions/workflows/quality.yml/badge.svg" alt="Code Quality"></a>
+        <a href="https://github.com/ramnes/notion-sdk-py/actions/workflows/test.yml"><img src="https://github.com/ramnes/notion-sdk-py/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
     </p>
     <br/>
 </div>
@@ -17,8 +19,9 @@
 This client is meant to be a Python version of the reference [JavaScript SDK](https://github.com/makenotion/notion-sdk-js),
 so usage should be pretty similar between both. 😊
 
-> 📢 **Announcement** — All endpoints are now implemented, and released since 0.3.0!
-> It still needs polishing but it's mostly functional. Pull requests always welcome!
+> 📢 **Announcement** — 0.4.0 has just been released, and it now comes with
+> error handling and complete type hinting! The code is evolving rapidly; feel
+> free to join the fun by opening an issue or PR.
 
 <!-- markdownlint-disable -->
 ## Installation
@@ -59,14 +62,14 @@ Make a request to any Notion API endpoint.
 from pprint import pprint
 
 list_users_response = notion.users.list()
-pprint(list_users_response.json())
+pprint(list_users_response)
 ```
 
 or with the asynchronous client:
 
 ```python
 list_users_response = await notion.users.list()
-pprint(list_users_response.json())
+pprint(list_users_response)
 ```
 
 This would output something like:
@@ -160,8 +163,8 @@ These options are all keys in the single constructor parameter.
 | Option | Default value | Type | Description |
 |--------|---------------|---------|-------------|
 | `auth` | `None` | `string` | Bearer token for authentication. If left undefined, the `auth` parameter should be set on each request. |
-| `log_level` | `logging.WARNING` | `int` | Verbosity of logs the instance will prodice. By default, logs are written to `stdout`.
-| `timeoutMs` | `60_000` | `int` | Number of milliseconds to wait before emitting a `RequestTimeoutError` |
+| `log_level` | `logging.WARNING` | `int` | Verbosity of logs the instance will produce. By default, logs are written to `stdout`.
+| `timeout_ms` | `60_000` | `int` | Number of milliseconds to wait before emitting a `RequestTimeoutError` |
 | `base_url` | `"https://api.notion.com"` | `string` | The root URL for sending API requests. This can be changed to test with a mock server. |
 | `logger` | Log to console | `logging.Logger` | A custom logger. |
 <!-- markdownlint-enable -->
