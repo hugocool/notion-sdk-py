@@ -1,5 +1,4 @@
-"""Sync and async clients for notion-sdk-py."""
-
+"""Synchronous and asynchronous clients for Notion's API."""
 import logging
 from abc import abstractclassmethod
 from dataclasses import dataclass
@@ -16,12 +15,10 @@ from notion_client.api_endpoints import (
     UsersEndpoint,
 )
 from notion_client.errors import (
-    APIErrorResponseBody,
     APIResponseError,
     HTTPResponseError,
     RequestTimeoutError,
     is_api_error_code,
-    is_timeout_error,
 )
 from notion_client.logging import make_console_logger
 from notion_client.typing import SyncAsync
@@ -73,7 +70,7 @@ class BaseClient:
         self.client.headers = httpx.Headers(
             {
                 "Notion-Version": options.notion_version,
-                "User-Agent": "ramnes/notion-sdk-py@0.4.0",
+                "User-Agent": "ramnes/notion-sdk-py@0.5.0",
             }
         )
         if options.auth:
@@ -104,16 +101,13 @@ class BaseClient:
     def _parse_response(self, response: Response) -> Any:
         try:
             response.raise_for_status()
-        except httpx.TimeoutException as error:
-            if is_timeout_error(error):
-                raise RequestTimeoutError()
-            raise
+        except httpx.TimeoutException:
+            raise RequestTimeoutError()
         except httpx.HTTPStatusError as error:
             body = error.response.json()
             code = body.get("code")
-            if is_api_error_code(code):
-                body = APIErrorResponseBody(code=code, message=body["message"])
-                raise APIResponseError(error.response, body)
+            if code and is_api_error_code(code):
+                raise APIResponseError(response, body["message"], code)
             raise HTTPResponseError(error.response)
 
         return response.json()
@@ -132,7 +126,7 @@ class BaseClient:
 
 
 class Client(BaseClient):
-    """Sync client for Notion API."""
+    """Synchronous client for Notion's API."""
 
     client: httpx.Client
 
@@ -161,7 +155,7 @@ class Client(BaseClient):
 
 
 class AsyncClient(BaseClient):
-    """Async client for Notion API."""
+    """Asynchronous client for Notion's API."""
 
     client: httpx.AsyncClient
 
@@ -183,7 +177,7 @@ class AsyncClient(BaseClient):
         body: Optional[Dict[Any, Any]] = None,
         auth: Optional[str] = None,
     ) -> Any:
-        """Send an HTTP request using async client."""
+        """Send an HTTP request asynchronously."""
         request = self._build_request(method, path, query, body, auth)
         async with self.client as client:
             response = await client.send(request)
